@@ -1,0 +1,8 @@
+{
+  "Port": 1234,
+  "Password": "",
+  "AdminPassword": "admin_password",
+  "SafeFrames": 10,
+  "PrepareWait":  60000,
+  "Motd": "FNFBRServer by namazso. Type /help for commands" 
+}
