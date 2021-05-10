@@ -204,19 +204,23 @@ namespace FNFBRServer
 
         public void ForceStart()
         {
-            var toStart = _players.Count(p => p.State == Player.PlayerState.InGame && !p.SentStart);
+            if (_players.Any(p => p.SentStart))
+                return; // game already started
+
+            var startedCount = 0;
             foreach (var p in _players)
                 switch (p.State)
                 {
                     case Player.PlayerState.InGame:
+                        ++startedCount;
                         p.NotifyStart();
                         break;
                     case Player.PlayerState.Preparing:
-                        p.NotifyForceEnd();
+                        p.NotifyForceEnd(); // sometimes this seems to not get processed by client?
                         break;
                 }
-            if(toStart > 0)
-                Console.WriteLine($"Started game for {toStart} players. Song: {_folder} {_file}");
+            if(startedCount > 0)
+                Console.WriteLine($"Started game for {startedCount} players. Song: {_folder} {_file}");
         }
 
         private void ForceStartCallback(object state)
