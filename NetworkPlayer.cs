@@ -251,12 +251,26 @@ namespace FNFBRServer
                     var nick = p.Nick.Normalize().Trim();
                     if(Regex.IsMatch(nick, "[A-Za-z0-9\\.\\-]{1,12}"))
                     {
-                        _tmpNickname = nick;
-                        SendPacket(new NicknameConfirm {Reply = NicknameConfirm.ReplyType.Accepted});
+                        Player existingPlayer;
+                        lock (_server)
+                        {
+                            existingPlayer = _server.FindPlayerByName(nick);
+                        }
+
+                        if (existingPlayer == null)
+                        {
+                            _tmpNickname = nick;
+                            SendPacket(new NicknameConfirm {Reply = NicknameConfirm.ReplyType.Accepted});
+                        }
+                        else
+                        {
+                            SendPacket(new NicknameConfirm {Reply = NicknameConfirm.ReplyType.AlreadyInUse});
+                            Disconnect();
+                        }
                     }
                     else
                     {
-                        SendPacket(new NicknameConfirm { Reply = NicknameConfirm.ReplyType.Invalid });
+                        SendPacket(new NicknameConfirm {Reply = NicknameConfirm.ReplyType.Invalid});
                         Disconnect();
                     }
                     break;
