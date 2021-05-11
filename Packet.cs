@@ -20,27 +20,13 @@ using System.Linq;
 
 namespace FNFBRServer
 {
-    interface IPacket {}
+    interface IPacket
+    {
+
+    }
 
     class Utils
     {
-        public static string ReadString(BinaryReader s) => System.Text.Encoding.UTF8.GetString(s.ReadBytes(s.ReadUInt16()));
-
-        public static void WriteString(BinaryWriter s, string str)
-        {
-            var buf = System.Text.Encoding.UTF8.GetBytes(str);
-            s.Write((ushort)buf.Length);
-            s.Write(buf);
-        }
-
-        public static byte[] ReadFile(BinaryReader s) => s.ReadBytes(s.ReadInt32());
-
-        public static void WriteFile(BinaryWriter s, byte[] buf)
-        {
-            s.Write((uint)buf.Length);
-            s.Write(buf);
-        }
-
         private static readonly Type[] Packets = {
             typeof(Packet.SendClientToken),
             typeof(Packet.SendServerToken),
