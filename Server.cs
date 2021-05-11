@@ -163,6 +163,7 @@ namespace FNFBRServer
             var voicesPath = $"charts{Path.DirectorySeparatorChar}{folder}{Path.DirectorySeparatorChar}Voices.ogg";
 
             var chart = File.ReadAllBytes(chartPath);
+            chart = Chart.FixChart(chart, folder);
             byte[] inst = null;
             try
             {
