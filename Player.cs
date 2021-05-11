@@ -226,11 +226,30 @@ namespace FNFBRServer
             }),
             new("/setsong", "set next song", true, (server, _, _, args) =>
             {
-                if (args.Length != 2)
+                if (args.Length != 2 && args.Length != 1)
                     throw new ArgumentException("Usage: /setsong <folder> <file without .json>");
 
-                server.SetSong(args[0], args[1]);
-                server.Say($"Song set to: {args[0]} {args[1]}");
+                string file;
+                string folder;
+                if (args.Length == 1)
+                {
+                    file = args[0];
+                    if (file.EndsWith("-hard"))
+                        folder = file.Remove(file.Length - "-hard".Length);
+                    else if (file.EndsWith("-easy"))
+                        folder = file.Remove(file.Length - "-easy".Length);
+                    else
+                        folder = file;
+                    
+                }
+                else
+                {
+                    folder = args[0];
+                    file = args[1];
+                }
+
+                server.SetSong(folder, file);
+                server.Say($"Song set to: {folder} {file}");
             }),
             new("/start", "start song", true, (server, _, _, _) =>
             {

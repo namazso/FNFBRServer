@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+#pragma warning disable 8632
 
 namespace FNFBRServer
 {
