@@ -170,22 +170,23 @@ namespace FNFBRServer
             }
             catch (Exception)
             {
-                // ignored
+                // ignored. this should only be hit when playing a default song
             }
 
-            byte[] voices = null;
+            byte[] voices;
             try
             {
                 voices = File.ReadAllBytes(voicesPath);
             }
             catch (Exception)
             {
-                // ignored
+                // client b_u_g: voices are requested for charts that don't need voices
+                voices = File.ReadAllBytes("silence.ogg");
             }
 
             _chartPacket = new SendChart {File = chart};
             _instPacket = inst != null ? new SendInst {File = inst} : new Deny();
-            _voicesPacket = voices != null ? new SendVoices {File = voices} : new Deny();
+            _voicesPacket = new SendVoices { File = voices };
             _file = file;
             _folder = folder;
         }
