@@ -91,11 +91,14 @@ namespace FNFBRServer
                 foreach (var connection in _networkPlayers)
                     connection.Heartbeat();
 
-                var deadConnections = _networkPlayers.Where(c => c.IsDead).ToImmutableArray();
+                var deadConnections = _networkPlayers
+                    .Where(c => c.IsDead)
+                    .ToImmutableArray();
 
                 var deadPlayers = deadConnections
                     .Where(c => c.Player != null)
-                    .Select(c => c.Player).ToImmutableArray();
+                    .Select(c => c.Player)
+                    .ToImmutableArray();
 
                 if(deadConnections.Length > 0 || deadPlayers.Length > 0)
                     Console.WriteLine($"Pruned {deadConnections.Length} dead connections and {deadPlayers.Length} dead players");
@@ -158,9 +161,9 @@ namespace FNFBRServer
             if (!Regex.IsMatch(folder, safetyFilter) || !Regex.IsMatch(file, safetyFilter))
                 throw new ArgumentException("Invalid name");
 
-            var chartPath = $"charts{Path.DirectorySeparatorChar}{folder}{Path.DirectorySeparatorChar}{file}.json";
-            var instPath = $"charts{Path.DirectorySeparatorChar}{folder}{Path.DirectorySeparatorChar}Inst.ogg";
-            var voicesPath = $"charts{Path.DirectorySeparatorChar}{folder}{Path.DirectorySeparatorChar}Voices.ogg";
+            var chartPath = Path.Join(Constants.ChartsFolder, folder, file + ".json");
+            var instPath = Path.Join(Constants.ChartsFolder, folder, "Inst.ogg");
+            var voicesPath = Path.Join(Constants.ChartsFolder, folder, "Voices.ogg");
 
             var chart = File.ReadAllBytes(chartPath);
             chart = Chart.FixChart(chart, folder);

@@ -103,7 +103,8 @@ namespace FNFBRServer
 
         public void OnJoin()
         {
-            NotifyServerChat(_server.Config.Motd);
+            PrintVersion();
+            PrintMotd();
             var inGame = _server.PlayersInGame();
             if(inGame != 0)
                 NotifyServerChat($"{inGame} players are currently playing a song.");
@@ -180,6 +181,22 @@ namespace FNFBRServer
             _endTimer.Change(1000, Timeout.Infinite);
         }
 
+        public void PrintMultiLine(string str)
+        {
+            foreach (var line in str.Split('\n'))
+                NotifyServerChat(line);
+        }
+
+        public void PrintMotd()
+        {
+            PrintMultiLine(_server.Config.Motd);
+        }
+
+        public void PrintVersion()
+        {
+            PrintMultiLine(Constants.VersionInfo);
+        }
+
         private class Command
         {
             public readonly string Name;
@@ -208,9 +225,9 @@ namespace FNFBRServer
                     if (!cmd.AdminOnly || player.IsAdmin)
                         player.NotifyServerChat($"{cmd.Name} - {cmd.Description}");
             }),
-            new("/motd", "print server motd", false, (server, player, _, _) =>
+            new("/motd", "print server motd", false, (_, player, _, _) =>
             {
-                player.NotifyServerChat(server.Config.Motd);
+                player.PrintMotd();
             }),
             new("/say", "chat as the server", true, (server, _, fullArgs, _) =>
             {
@@ -227,7 +244,7 @@ namespace FNFBRServer
             new("/setsong", "set next song", true, (server, _, _, args) =>
             {
                 if (args.Length != 2 && args.Length != 1)
-                    throw new ArgumentException("Usage: /setsong <folder> <file without .json>");
+                    throw new ArgumentException("Usage: /setsong [folder] <file without .json>");
 
                 string file;
                 string folder;
@@ -266,7 +283,7 @@ namespace FNFBRServer
             }),
             new("/search", "search for a song", false, (_, player, args, _) =>
             {
-                Directory.EnumerateDirectories("charts")
+                Directory.EnumerateDirectories(Constants.ChartsFolder)
                     .Where(d => d.Contains(args))
                     .ToList()
                     .ForEach(player.NotifyServerChat);
