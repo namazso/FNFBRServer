@@ -36,8 +36,7 @@ namespace FNFBRServer
         public readonly bool IsAdmin;
         public readonly string Nick;
 
-        private PlayerState _state = PlayerState.Lobby;
-        public PlayerState State => _state;
+        public PlayerState State { get; private set; } = PlayerState.Lobby;
 
         public bool SentStart { get; private set; }
 
@@ -96,10 +95,7 @@ namespace FNFBRServer
             LobbyPacket(new BroadcastChatMessage {Player = (byte) player.Id, Message = message});
         }
 
-        public void NotifyServerChat(string message)
-        {
-            LobbyPacket(new ServerChatMessage {Message = message});
-        }
+        public void NotifyServerChat(string message) => LobbyPacket(new ServerChatMessage {Message = message});
 
         public void OnJoin()
         {
@@ -122,7 +118,7 @@ namespace FNFBRServer
             _networkPlayer.InstPacket = inst;
             _networkPlayer.VoicesPacket = voices;
             _networkPlayer.SendPacket(new GameStart {Folder = folder, Song = file});
-            _state = PlayerState.Preparing;
+            State = PlayerState.Preparing;
         }
 
         public void NotifyReady(int total, int ready)
@@ -153,26 +149,23 @@ namespace FNFBRServer
         {
             _networkPlayer.SendPacket(new ForceGameEnd());
             SentStart = false;
-            _state = PlayerState.Lobby; // force set to lobby
+            State = PlayerState.Lobby; // force set to lobby
         }
 
         public void OnGameReady()
         {
-            _state = PlayerState.InGame;
+            State = PlayerState.InGame;
             _server.UpdateReady();
         }
 
-        public void OnScore(int score)
-        {
-            _server.BroadcastScore(this, score);
-        }
-        
+        public void OnScore(int score) => _server.BroadcastScore(this, score);
+
         private void EndTimerCallback(object state)
         {
             lock (_server)
             {
                 SentStart = false;
-                _state = PlayerState.Lobby;
+                State = PlayerState.Lobby;
             }
         }
 
@@ -187,15 +180,9 @@ namespace FNFBRServer
                 NotifyServerChat(line);
         }
 
-        public void PrintMotd()
-        {
-            PrintMultiLine(_server.Config.Motd);
-        }
+        public void PrintMotd() => PrintMultiLine(_server.Config.Motd);
 
-        public void PrintVersion()
-        {
-            PrintMultiLine(Constants.VersionInfo);
-        }
+        public void PrintVersion() => PrintMultiLine(Constants.VersionInfo);
 
         private class Command
         {
@@ -283,8 +270,9 @@ namespace FNFBRServer
             }),
             new("/search", "search for a song", false, (_, player, args, _) =>
             {
+                args = args.ToLowerInvariant();
                 Directory.EnumerateDirectories(Constants.ChartsFolder)
-                    .Where(d => d.Contains(args))
+                    .Where(d => d.ToLowerInvariant().Contains(args))
                     .ToList()
                     .ForEach(player.NotifyServerChat);
             })
