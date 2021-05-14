@@ -14,6 +14,7 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.IO;
 using System.Text.Json;
 #pragma warning disable 8632
 
@@ -80,6 +81,8 @@ namespace FNFBRServer
         {
             var inString = System.Text.Encoding.UTF8.GetString(inFile);
             var chart = JsonSerializer.Deserialize<Chart>(inString);
+            if (chart.song?.song == null)
+                throw new InvalidDataException("Malformed chart");
             chart.song.song = folder;
             chart.Normalize();
             var options = new JsonSerializerOptions

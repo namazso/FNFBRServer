@@ -19,6 +19,6 @@ namespace FNFBRServer
     class Constants
     {
         public const string ChartsFolder = "charts";
-        public const string VersionInfo = "FNFBRServer (C) 2021  namazso <admin@namazso.eu>; AGPLv3\nhttps://github.com/namazso/FNFBRServer";
+        public const string VersionInfo = "FNFBRServer (C) 2021  namazso <admin@namazso.eu>; Licensed under AGPLv3\nSource available at https://github.com/namazso/FNFBRServer";
     }
 }

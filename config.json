@@ -4,5 +4,5 @@
   "AdminPassword": "admin_password",
   "SafeFrames": 10,
   "PrepareWait":  60000,
-  "Motd": "FNFBRServer by namazso. Type /help for commands" 
+  "Motd": "Welcome! Type /help for commands." 
 }

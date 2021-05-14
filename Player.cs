@@ -231,29 +231,34 @@ namespace FNFBRServer
             new("/setsong", "set next song", true, (server, _, _, args) =>
             {
                 if (args.Length != 2 && args.Length != 1)
-                    throw new ArgumentException("Usage: /setsong [folder] <file without .json>");
+                    throw new ArgumentException("Usage: /setsong <song> [difficulty]");
 
-                string file;
-                string folder;
-                if (args.Length == 1)
+                var song = args[0];
+
+                if (!server.Charts.TryGetValue(args[0], out var charts))
+                    throw new ArgumentException("Song not found");
+
+                Server.ChartEntry chart = null;
+
+                if (args.Length == 2)
                 {
-                    file = args[0];
-                    if (file.EndsWith("-hard"))
-                        folder = file.Remove(file.Length - "-hard".Length);
-                    else if (file.EndsWith("-easy"))
-                        folder = file.Remove(file.Length - "-easy".Length);
-                    else
-                        folder = file;
-                    
+                    chart = charts.FirstOrDefault(d => d.DifficultyNiceName == args[1]);
                 }
                 else
                 {
-                    folder = args[0];
-                    file = args[1];
+                    foreach (var diff in new[]{"extra-hard", "another", "expert", "crazy", "hard", "normal", "easy"})
+                    {
+                        chart = charts.FirstOrDefault(d => d.DifficultyNiceName == diff);
+                        if (chart != null)
+                            break;
+                    }
                 }
 
-                server.SetSong(folder, file);
-                server.Say($"Song set to: {folder} {file}");
+                if (chart == null)
+                    throw new ArgumentException("Difficulty not found");
+
+                server.SetSong(song, chart);
+                server.Say($"Song set to: {song} {chart.DifficultyNiceName}");
             }),
             new("/start", "start song", true, (server, _, _, _) =>
             {
@@ -262,19 +267,27 @@ namespace FNFBRServer
             new("/forceend", "force end song", true, (server, _, _, _) =>
             {
                 server.ForceEnd();
-                server.Say("force ended song");
+                server.Say("Force ended song");
             }),
             new("/forcestart", "force start song for people preparing", true, (server, _, _, _) =>
             {
                 server.ForceStart();
+                server.Say("Force started song");
             }),
-            new("/search", "search for a song", false, (_, player, args, _) =>
+            new("/reloadcharts", "reload charts", true, (server, _, _, _) =>
             {
-                args = args.ToLowerInvariant();
-                Directory.EnumerateDirectories(Constants.ChartsFolder)
-                    .Where(d => d.ToLowerInvariant().Contains(args))
-                    .ToList()
-                    .ForEach(player.NotifyServerChat);
+                server.LoadCharts();
+            }),
+            new("/search", "search for a song", false, (server, player, args, _) =>
+            {
+                var search = args.ToLowerInvariant();
+                foreach (var (key, value) in server.Charts.Where(s => s.Key.Contains(search)))
+                {
+                    var msg = key + " (";
+                    msg += string.Join(" ", value.Select(v => v.DifficultyNiceName));
+                    msg += ")";
+                    player.NotifyServerChat(msg);
+                }
             })
         };
 
@@ -282,7 +295,7 @@ namespace FNFBRServer
         {
             foreach (var command in Commands)
             {
-                if (!message.StartsWith(command.Name))
+                if (!(message.StartsWith(command.Name + " ") || message.Equals(command.Name)))
                     continue;
 
                 if (command.AdminOnly && !IsAdmin)

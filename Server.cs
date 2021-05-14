@@ -46,6 +46,15 @@ namespace FNFBRServer
         private readonly List<Player> _players = new();
         private readonly List<NetworkPlayer> _networkPlayers = new();
 
+        public class ChartEntry
+        {
+            public string DifficultyName { get; set; }
+            public string DifficultyNiceName => DifficultyName == "" ? "normal" : DifficultyName;
+            public string LocalFolder { get; set; }
+            public byte[] Data { get; set; }
+        }
+
+        public Dictionary<string, List<ChartEntry>> Charts { get; } = new();
 
         private readonly Timer _heartbeat;
         private readonly Timer _forceStartTimer;
@@ -54,6 +63,8 @@ namespace FNFBRServer
         public Server(Config config)
         {
             Config = config;
+
+            LoadCharts();
             
             _listener = new TcpListener(IPAddress.Any, config.Port);
             _listener.Start();
@@ -155,18 +166,50 @@ namespace FNFBRServer
                 p.NotifyServerChat(message);
         }
 
-        public void SetSong(string folder, string file)
+        public void LoadCharts()
         {
-            const string safetyFilter = "[a-zA-Z0-9_\\-]+";
-            if (!Regex.IsMatch(folder, safetyFilter) || !Regex.IsMatch(file, safetyFilter))
-                throw new ArgumentException("Invalid name");
+            Charts.Clear();
+            
+            var normalize = new Func<string, string>(s => Regex.Replace(s.ToLowerInvariant(), "[^a-z0-9\\-]", "-").Trim('-'));
+            
+            foreach (var folder in Directory.EnumerateDirectories(Constants.ChartsFolder))
+            {
+                var folderName = Path.GetFileName(folder);
+                if(folderName == null)
+                    continue;
+                var songName = normalize(folderName);
+                if(!Charts.TryGetValue(songName, out var difficultyCharts))
+                {
+                    difficultyCharts = new();
+                    Charts.Add(songName, difficultyCharts);
+                }
+                foreach (var file in Directory.EnumerateFiles(folder, "*.json"))
+                {
+                    var fileName = Path.GetFileNameWithoutExtension(file);
+                    if(fileName is null or "config")
+                        continue;
+                    var difficulty = normalize(fileName).Replace(songName, null).Trim('-');
+                    byte[] data;
+                    try
+                    {
+                        data = Chart.FixChart(File.ReadAllBytes(file), songName);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"WARNING: map {file} is invalid: {e.Message}");
+                        continue;
+                    }
 
-            var chartPath = Path.Join(Constants.ChartsFolder, folder, file + ".json");
-            var instPath = Path.Join(Constants.ChartsFolder, folder, "Inst.ogg");
-            var voicesPath = Path.Join(Constants.ChartsFolder, folder, "Voices.ogg");
+                    difficultyCharts.Add(new ChartEntry {Data = data, DifficultyName = difficulty, LocalFolder = folder});
+                }
+            }
+        }
 
-            var chart = File.ReadAllBytes(chartPath);
-            chart = Chart.FixChart(chart, folder);
+        public void SetSong(string songName, ChartEntry chartEntry)
+        {
+            var instPath = Path.Join(chartEntry.LocalFolder, "Inst.ogg");
+            var voicesPath = Path.Join(chartEntry.LocalFolder, "Voices.ogg");
+            
             byte[] inst = null;
             try
             {
@@ -188,11 +231,11 @@ namespace FNFBRServer
                 voices = File.ReadAllBytes("silence.ogg");
             }
 
-            _chartPacket = new SendChart {File = chart};
-            _instPacket = inst != null ? new SendInst {File = inst} : new Deny();
+            _chartPacket = new SendChart { File = chartEntry.Data };
+            _instPacket = inst != null ? new SendInst { File = inst } : new Deny();
             _voicesPacket = new SendVoices { File = voices };
-            _file = file;
-            _folder = folder;
+            _file = songName + chartEntry.DifficultyName == "" ? chartEntry.DifficultyName : "-" + chartEntry.DifficultyName;
+            _folder = songName;
         }
 
         public void StartSong()
