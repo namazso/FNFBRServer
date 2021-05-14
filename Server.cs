@@ -29,15 +29,19 @@ namespace FNFBRServer
 {
     class Server
     {
-        private IPacket _chartPacket;
-        private IPacket _instPacket;
-        private IPacket _voicesPacket;
-        private string _folder;
-        private string _file;
+        public IPacket ChartPacket { get; private set; }
+        public IPacket InstPacket { get; private set; }
+        public IPacket VoicesPacket { get; private set; }
+        public string Folder { get; private set; }
+        public string File { get; private set; }
+
+        private long _length;
 
         public Config Config;
 
         private bool _run = true;
+
+        public bool VotingEnabled { get; set; } = true;
 
         private readonly TcpListener _listener;
 
@@ -51,14 +55,121 @@ namespace FNFBRServer
             public string DifficultyName { get; set; }
             public string DifficultyNiceName => DifficultyName == "" ? "normal" : DifficultyName;
             public string LocalFolder { get; set; }
+            public string SongName { get; set; }
             public byte[] Data { get; set; }
         }
 
         public Dictionary<string, List<ChartEntry>> Charts { get; } = new();
 
-        private readonly Timer _heartbeat;
-        private readonly Timer _forceStartTimer;
+        private readonly List<ChartEntry> _nominations = new();
 
+        private readonly Timer _heartbeat;
+
+        public enum ServerState
+        {
+            // Players are free to chat and nominate maps
+            Nomination,
+
+            // Nominated maps are printed, chat is suppressed, numbers chatted are considered the vote
+            Voting,
+
+            // People are downloading or waiting for other players
+            Preparing,
+
+            // In game / playing a song
+            Playing,
+
+            // Server has below threshold number of players
+            Dead
+        };
+
+        private readonly Timer _stateAdvanceTimer;
+        private ServerState _state = ServerState.Dead;
+
+        public ServerState State
+        {
+            get => _state;
+            private set
+            {
+                switch (value)
+                {
+                    case ServerState.Nomination:
+                        _nominations.Clear();
+                        if (VotingEnabled)
+                        {
+                            Say("Nominations have started. Use /nom to nominate, /search to search");
+                            _stateAdvanceTimer.Change(Config.WaitNominate, Timeout.Infinite);
+                        }
+                        break;
+                    case ServerState.Voting:
+                        ChartPacket = null;
+                        Say("Voting has started. Type the number of your vote. Nominated songs:");
+                        if (_nominations.Count < 5)
+                        {
+                            var allCharts = Charts.SelectMany(p => p.Value).ToImmutableArray();
+                            var random = new Random();
+                            while (_nominations.Count < 5)
+                            {
+                                try
+                                {
+                                    Nominate(allCharts[random.Next(allCharts.Length)]);
+                                }
+                                catch (Exception)
+                                {
+                                    // ignored
+                                }
+                            }
+                        }
+                        for (var index = 0; index < _nominations.Count; index++)
+                        {
+                            var nomination = _nominations[index];
+                            Say($"{index}. {nomination.SongName} {nomination.DifficultyNiceName}");
+                        }
+                        _stateAdvanceTimer.Change(Config.WaitVote, Timeout.Infinite);
+                        break;
+                    case ServerState.Preparing:
+                        if (ChartPacket == null)
+                        {
+                            var val = _players
+                                .Select(p => p.Vote)
+                                .Where(i => i >= 0 && i < _nominations.Count)
+                                .GroupBy(i => i)
+                                .OrderByDescending(g => g.Count())
+                                .FirstOrDefault();
+                            SetSong(_nominations[val?.Key ?? 0]);
+                        }
+                        _stateAdvanceTimer.Change(Config.WaitPrepare, Timeout.Infinite);
+                        break;
+                    case ServerState.Playing:
+                        _stateAdvanceTimer.Change(_length + Config.WaitFinish, Timeout.Infinite);
+                        break;
+                    case ServerState.Dead:
+                        _stateAdvanceTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(value), value, null);
+                }
+                _state = value;
+
+                foreach (var player in _players)
+                    player.OnServerStateChange(value);
+            }
+        }
+
+        private void StateAdvanceCallback(object state)
+        {
+            lock (this)
+            {
+                State = State switch
+                {
+                    ServerState.Nomination  => ServerState.Voting,
+                    ServerState.Voting      => ServerState.Preparing,
+                    ServerState.Preparing   => ServerState.Playing,
+                    ServerState.Playing     => ServerState.Nomination,
+                    _                       => throw new ArgumentOutOfRangeException(nameof(State), State, null)
+                };
+            }
+        }
 
         public Server(Config config)
         {
@@ -72,9 +183,9 @@ namespace FNFBRServer
             Console.WriteLine($"Listening on: {((IPEndPoint)_listener.LocalEndpoint).Port}");
 
             _heartbeat = new Timer(HeartbeatCallback);
-            _forceStartTimer = new Timer(ForceStartCallback);
+            _stateAdvanceTimer = new Timer(StateAdvanceCallback);
         }
-
+        
         public void Run()
         {
             _heartbeat.Change(0, 1000);
@@ -122,6 +233,12 @@ namespace FNFBRServer
 
                 _networkPlayers.RemoveAll(c => deadConnections.Contains(c));
 
+                if (_players.Count < Config.MinimumPlayers && State != ServerState.Dead)
+                    State = ServerState.Dead;
+
+                if (_players.Count >= Config.MinimumPlayers && State == ServerState.Dead)
+                    State = ServerState.Nomination;
+
                 UpdateReady();
             }
         }
@@ -155,20 +272,23 @@ namespace FNFBRServer
             return player;
         }
 
-        public int PlayersInGame()
+        public int PlayersInGame() => _players.Count(player => player.State != Player.PlayerState.Lobby);
+
+        public void Say(string message) => _players.ForEach(p => p.NotifyServerChat(message));
+
+        public void Nominate(ChartEntry chart)
         {
-            return _players.Count(player => player.State != Player.PlayerState.Lobby);
+            if (_nominations.Count >= Config.MaximumNominations)
+                throw new ArgumentException("Maximum number of nominations already reached");
+            if (_nominations.Contains(chart))
+                throw new ArgumentException("Chart already nominated");
+            _nominations.Add(chart);
         }
 
-        public void Say(string message)
+        public void LoadCharts(bool full = true)
         {
-            foreach (var p in _players)
-                p.NotifyServerChat(message);
-        }
-
-        public void LoadCharts()
-        {
-            Charts.Clear();
+            if(full)
+                Charts.Clear();
             
             var normalize = new Func<string, string>(s => Regex.Replace(s.ToLowerInvariant(), "[^a-z0-9\\-]", "-").Trim('-'));
             
@@ -183,6 +303,12 @@ namespace FNFBRServer
                     difficultyCharts = new();
                     Charts.Add(songName, difficultyCharts);
                 }
+                else if (!full)
+                {
+                    continue; // if we aren't doing a full reload just skip folders we already know of
+                }
+
+
                 foreach (var file in Directory.EnumerateFiles(folder, "*.json"))
                 {
                     var fileName = Path.GetFileNameWithoutExtension(file);
@@ -192,7 +318,7 @@ namespace FNFBRServer
                     byte[] data;
                     try
                     {
-                        data = Chart.FixChart(File.ReadAllBytes(file), songName);
+                        data = Chart.FixChart(System.IO.File.ReadAllBytes(file), songName);
                     }
                     catch (Exception e)
                     {
@@ -200,83 +326,45 @@ namespace FNFBRServer
                         continue;
                     }
 
-                    difficultyCharts.Add(new ChartEntry {Data = data, DifficultyName = difficulty, LocalFolder = folder});
+                    difficultyCharts.Add(new ChartEntry {Data = data, DifficultyName = difficulty, LocalFolder = folder, SongName = songName});
                 }
             }
         }
 
-        public void SetSong(string songName, ChartEntry chartEntry)
+        public void SetSong(ChartEntry chartEntry)
         {
             var instPath = Path.Join(chartEntry.LocalFolder, "Inst.ogg");
             var voicesPath = Path.Join(chartEntry.LocalFolder, "Voices.ogg");
             
-            byte[] inst = null;
-            try
-            {
-                inst = File.ReadAllBytes(instPath);
-            }
-            catch (Exception)
-            {
-                // ignored. this should only be hit when playing a default song
-            }
+            // Note: This means that even default songs must have their instrumentals available
+            var inst = System.IO.File.ReadAllBytes(instPath);
+
+            // This also verifies if the song is a valid OGG Vorbis
+            _length = (long)(new NVorbis.VorbisReader(instPath).TotalTime).TotalMilliseconds;
 
             byte[] voices;
             try
             {
-                voices = File.ReadAllBytes(voicesPath);
+                voices = System.IO.File.ReadAllBytes(voicesPath);
             }
             catch (Exception)
             {
                 // client b_u_g: voices are requested for charts that don't need voices
-                voices = File.ReadAllBytes("silence.ogg");
+                voices = System.IO.File.ReadAllBytes("silence.ogg");
             }
 
-            _chartPacket = new SendChart { File = chartEntry.Data };
-            _instPacket = inst != null ? new SendInst { File = inst } : new Deny();
-            _voicesPacket = new SendVoices { File = voices };
-            _file = songName + chartEntry.DifficultyName == "" ? chartEntry.DifficultyName : "-" + chartEntry.DifficultyName;
-            _folder = songName;
+            ChartPacket = new SendChart { File = chartEntry.Data };
+            InstPacket = inst != null ? new SendInst { File = inst } : new Deny();
+            VoicesPacket = new SendVoices { File = voices };
+            File = chartEntry.SongName + chartEntry.DifficultyName == "" ? chartEntry.DifficultyName : "-" + chartEntry.DifficultyName;
+            Folder = chartEntry.SongName;
         }
 
-        public void StartSong()
+        public void ManualStartSong()
         {
-            if (_chartPacket == null)
+            if (ChartPacket == null)
                 throw new InvalidDataException("A song was not set");
-            var inGame = _players.Count(player => player.State != Player.PlayerState.Lobby);
-            if (inGame > 0)
-                throw new InvalidDataException($"{inGame} players are still in game!");
-            foreach (var p in _players)
-                p.StartSong(_folder, _file, _chartPacket, _instPacket, _voicesPacket);
-            _forceStartTimer.Change(Config.PrepareWait, Timeout.Infinite);
-        }
-
-        public void ForceStart()
-        {
-            if (_players.Any(p => p.SentStart))
-                return; // game already started
-
-            var startedCount = 0;
-            foreach (var p in _players)
-                switch (p.State)
-                {
-                    case Player.PlayerState.InGame:
-                        ++startedCount;
-                        p.NotifyStart();
-                        break;
-                    case Player.PlayerState.Preparing:
-                        p.NotifyForceEnd(); // sometimes this seems to not get processed by client?
-                        break;
-                }
-            if(startedCount > 0)
-                Console.WriteLine($"Started game for {startedCount} players. Song: {_folder} {_file}");
-        }
-
-        private void ForceStartCallback(object state)
-        {
-            lock (this)
-            {
-                ForceStart();
-            }
+            State = ServerState.Preparing;
         }
         
         public Player FindPlayerByName(string nick) => _players.FirstOrDefault(p => p.Nick == nick);
@@ -289,15 +377,18 @@ namespace FNFBRServer
         
         public void UpdateReady()
         {
+            if (State != ServerState.Preparing)
+                return;
+
             var preparing = _players.Count(p => p.State == Player.PlayerState.Preparing);
             var ready = _players.Count(p => p.State == Player.PlayerState.InGame);
             if (ready == 0)
                 return;
-
+            
             if (preparing == 0)
             {
                 // everyone is ready
-                ForceStart();
+                State = ServerState.Playing;
             }
             else
             {
@@ -309,8 +400,7 @@ namespace FNFBRServer
 
         public void ForceEnd()
         {
-            foreach (var p in _players)
-                p.NotifyForceEnd();
+            State = ServerState.Nomination;
         }
 
         public void BroadcastScore(Player player, int score)

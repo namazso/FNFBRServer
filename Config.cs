@@ -22,7 +22,12 @@ namespace FNFBRServer
         public string Password { get; set; }
         public string AdminPassword { get; set; }
         public int SafeFrames { get; set; }
-        public int PrepareWait { get; set; }
+        public int WaitNominate { get; set; }
+        public int WaitVote { get; set; }
+        public int WaitPrepare { get; set; }
+        public int WaitFinish { get; set; }
+        public int MinimumPlayers { get; set; }
+        public int MaximumNominations { get; set; }
         public string Motd { get; set; }
     }
 }

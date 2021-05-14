@@ -3,6 +3,11 @@
   "Password": "",
   "AdminPassword": "admin_password",
   "SafeFrames": 10,
-  "PrepareWait":  60000,
-  "Motd": "Welcome! Type /help for commands." 
+  "WaitNominate": 30000,
+  "WaitVote": 10000,
+  "WaitPrepare": 60000,
+  "WaitFinish": 10000,
+  "MinimumPlayers": 1,
+  "MaximumNominations": 5,
+  "Motd": "Welcome! Type /help for commands."
 }

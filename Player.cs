@@ -16,8 +16,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using FNFBRServer.Packet;
 
@@ -36,9 +34,9 @@ namespace FNFBRServer
         public readonly bool IsAdmin;
         public readonly string Nick;
 
-        public PlayerState State { get; private set; } = PlayerState.Lobby;
+        public int Vote { get; private set; } = -1;
 
-        public bool SentStart { get; private set; }
+        public PlayerState State { get; private set; } = PlayerState.Lobby;
 
         private readonly Server _server;
         private readonly NetworkPlayer _networkPlayer;
@@ -102,8 +100,10 @@ namespace FNFBRServer
             PrintVersion();
             PrintMotd();
             var inGame = _server.PlayersInGame();
-            if(inGame != 0)
+            if (inGame != 0)
                 NotifyServerChat($"{inGame} players are currently playing a song.");
+            if (_server.State == Server.ServerState.Dead)
+                NotifyServerChat("Waiting for more players to join...");
         }
         
         public void Kick()
@@ -111,45 +111,54 @@ namespace FNFBRServer
             _server.Say($"Kicked {Nick}");
             _networkPlayer.Disconnect();
         }
-
-        public void StartSong(string folder, string file, IPacket chart, IPacket inst, IPacket voices)
-        {
-            _networkPlayer.ChartPacket = chart;
-            _networkPlayer.InstPacket = inst;
-            _networkPlayer.VoicesPacket = voices;
-            _networkPlayer.SendPacket(new GameStart {Folder = folder, Song = file});
-            State = PlayerState.Preparing;
-        }
-
+        
         public void NotifyReady(int total, int ready)
         {
             if (State != PlayerState.InGame)
                 return;
             _networkPlayer.SendPacket(new PlayersReady {Count = (byte)ready});
         }
-
-        public void NotifyStart()
-        {
-            if (State != PlayerState.InGame)
-                return;
-            if (SentStart)
-                return;
-            _networkPlayer.SendPacket(new PlayersReady {Count = 255});
-            _networkPlayer.SendPacket(new EveryoneReady {SafeFrames = (byte) _server.Config.SafeFrames});
-            SentStart = true;
-        }
-
+        
         public void NotifyScore(Player player, int score)
         {
             if (player != this)
                 _networkPlayer.SendPacket(new BroadcastScore {Player = (byte) player.Id, Score = score});
         }
-
-        public void NotifyForceEnd()
+        
+        public void OnServerStateChange(Server.ServerState newState)
         {
-            _networkPlayer.SendPacket(new ForceGameEnd());
-            SentStart = false;
-            State = PlayerState.Lobby; // force set to lobby
+            switch (newState)
+            {
+                case Server.ServerState.Nomination:
+                    if (State is PlayerState.InGame or PlayerState.Preparing)
+                    {
+                        _networkPlayer.SendPacket(new ForceGameEnd());
+                        OnGameEnd();
+                    }
+                    break;
+                case Server.ServerState.Voting:
+                    Vote = -1;
+                    if (State is PlayerState.InGame or PlayerState.Preparing)
+                        _networkPlayer.Disconnect();
+                    break;
+                case Server.ServerState.Preparing:
+                    _networkPlayer.ChartPacket = _server.ChartPacket;
+                    _networkPlayer.InstPacket = _server.InstPacket;
+                    _networkPlayer.VoicesPacket = _server.VoicesPacket;
+                    _networkPlayer.SendPacket(new GameStart { Folder = _server.Folder, File = _server.File });
+                    State = PlayerState.Preparing;
+                    break;
+                case Server.ServerState.Playing:
+                    if (State != PlayerState.InGame)
+                        return;
+                    _networkPlayer.SendPacket(new PlayersReady { Count = 255 });
+                    _networkPlayer.SendPacket(new EveryoneReady { SafeFrames = (byte)_server.Config.SafeFrames });
+                    break;
+                case Server.ServerState.Dead:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(newState), newState, null);
+            }
         }
 
         public void OnGameReady()
@@ -159,20 +168,18 @@ namespace FNFBRServer
         }
 
         public void OnScore(int score) => _server.BroadcastScore(this, score);
-
+        
         private void EndTimerCallback(object state)
         {
             lock (_server)
             {
-                SentStart = false;
-                State = PlayerState.Lobby;
+                if (State is PlayerState.InGame or PlayerState.Preparing)
+                    State = PlayerState.Lobby;
             }
         }
 
-        public void OnGameEnd()
-        {
-            _endTimer.Change(1000, Timeout.Infinite);
-        }
+        // Need to delay this because if we just dump the queued messages instantly client crashes
+        public void OnGameEnd() => _endTimer.Change(1000, Timeout.Infinite);
 
         public void PrintMultiLine(string str)
         {
@@ -183,152 +190,31 @@ namespace FNFBRServer
         public void PrintMotd() => PrintMultiLine(_server.Config.Motd);
 
         public void PrintVersion() => PrintMultiLine(Constants.VersionInfo);
-
-        private class Command
-        {
-            public readonly string Name;
-            public readonly string Description;
-            public readonly bool AdminOnly;
-
-            public delegate void OnExecuteDelegate(Server server, Player player, string fullArgs, string[] args);
-
-            public readonly OnExecuteDelegate OnExecute;
-
-            public Command(string name, string description, bool adminOnly, OnExecuteDelegate onExecute)
-            {
-                Name = name;
-                Description = description;
-                AdminOnly = adminOnly;
-                OnExecute = onExecute;
-            }
-        }
-
-        private static readonly Command[] Commands =
-        {
-            new("/help", "print this help", false, (_, player, _, _) =>
-            {
-                player.NotifyServerChat("Supported commands: ");
-                foreach (var cmd in Commands)
-                    if (!cmd.AdminOnly || player.IsAdmin)
-                        player.NotifyServerChat($"{cmd.Name} - {cmd.Description}");
-            }),
-            new("/motd", "print server motd", false, (_, player, _, _) =>
-            {
-                player.PrintMotd();
-            }),
-            new("/say", "chat as the server", true, (server, _, fullArgs, _) =>
-            {
-                server.Say(fullArgs);
-            }),
-            new("/kick", "kick a player", true, (server, _, fullArgs, _) =>
-            {
-                var target = server.FindPlayerByName(fullArgs);
-                if (target == null)
-                    throw new ArgumentException("No such player");
-
-                target.Kick();
-            }),
-            new("/setsong", "set next song", true, (server, _, _, args) =>
-            {
-                if (args.Length != 2 && args.Length != 1)
-                    throw new ArgumentException("Usage: /setsong <song> [difficulty]");
-
-                var song = args[0];
-
-                if (!server.Charts.TryGetValue(args[0], out var charts))
-                    throw new ArgumentException("Song not found");
-
-                Server.ChartEntry chart = null;
-
-                if (args.Length == 2)
-                {
-                    chart = charts.FirstOrDefault(d => d.DifficultyNiceName == args[1]);
-                }
-                else
-                {
-                    foreach (var diff in new[]{"extra-hard", "another", "expert", "crazy", "hard", "normal", "easy"})
-                    {
-                        chart = charts.FirstOrDefault(d => d.DifficultyNiceName == diff);
-                        if (chart != null)
-                            break;
-                    }
-                }
-
-                if (chart == null)
-                    throw new ArgumentException("Difficulty not found");
-
-                server.SetSong(song, chart);
-                server.Say($"Song set to: {song} {chart.DifficultyNiceName}");
-            }),
-            new("/start", "start song", true, (server, _, _, _) =>
-            {
-                server.StartSong();
-            }),
-            new("/forceend", "force end song", true, (server, _, _, _) =>
-            {
-                server.ForceEnd();
-                server.Say("Force ended song");
-            }),
-            new("/forcestart", "force start song for people preparing", true, (server, _, _, _) =>
-            {
-                server.ForceStart();
-                server.Say("Force started song");
-            }),
-            new("/reloadcharts", "reload charts", true, (server, _, _, _) =>
-            {
-                server.LoadCharts();
-            }),
-            new("/search", "search for a song", false, (server, player, args, _) =>
-            {
-                var search = args.ToLowerInvariant();
-                foreach (var (key, value) in server.Charts.Where(s => s.Key.Contains(search)))
-                {
-                    var msg = key + " (";
-                    msg += string.Join(" ", value.Select(v => v.DifficultyNiceName));
-                    msg += ")";
-                    player.NotifyServerChat(msg);
-                }
-            })
-        };
-
-        private void ProcessCommand(string message)
-        {
-            foreach (var command in Commands)
-            {
-                if (!(message.StartsWith(command.Name + " ") || message.Equals(command.Name)))
-                    continue;
-
-                if (command.AdminOnly && !IsAdmin)
-                {
-                    NotifyServerChat("You don't have permission for this!");
-                    return;
-                }
-
-                var rest = message.Substring(command.Name.Length).TrimStart();
-                var args = rest.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                try
-                {
-                    command.OnExecute(_server, this, rest, args);
-                }
-                catch (Exception e)
-                {
-                    NotifyServerChat($"Failed: {e.Message}");
-                }
-                
-                return;
-            }
-            NotifyServerChat("Unknown command, try /help");
-        }
-
+        
         public void OnChat(int id, string message)
         {
             if (message.Length == 0)
                 return;
+
             Console.WriteLine($"[{Id}|{Nick}] {message}");
+
             if (message.StartsWith('/'))
-                ProcessCommand(message);
-            else
-                _server.BroadcastChat(this, message);
+            {
+                Command.ProcessCommand(_server, this, message);
+                return;
+            }
+
+            if (_server.State == Server.ServerState.Voting)
+            {
+                if (Vote == -1 && int.TryParse(message, out var vote))
+                {
+                    Vote = vote;
+                    NotifyServerChat("Vote successful!");
+                }
+                return;
+            }
+            
+            _server.BroadcastChat(this, message);
         }
     }
 }

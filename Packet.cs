@@ -269,7 +269,7 @@ namespace FNFBRServer
 
         class GameStart : IPacket
         {
-            public string Song { get; set; }
+            public string File { get; set; }
             public string Folder { get; set; }
         }
 
