@@ -4,23 +4,23 @@ A server reimplementation for [FunkinBattleRoyale](https://github.com/XieneDev/F
 
 ## User commands
 
-### /help
+### `/help`
 
 Lists available commands and their descriptions
 
-### /motd
+### `/motd`
 
 Prints the MOTD
 
-### /version
+### `/version`
 
 Prints the server version
 
-### /nom <song> [difficulty]
+### `/nom <song> [difficulty]`
 
 Only usable during nomination period. Nominate a song. If no difficulty is specified the hardest recognized will be used.
 
-### /search [substring]
+### `/search [substring]`
 
 Search for songs containing the specified substring. Songs matching with available difficulties are displayed
 
@@ -30,39 +30,39 @@ During voting period just chat a number to vote
 
 ## Admin commands
 
-### /say <message>
+### `/say <message>`
 
 Chat as the server
 
-### /kick <nick>
+### `/kick <nick>`
 
 Kicks a player
 
-### /setsong <song> [difficulty]
+### `/setsong <song> [difficulty]`
 
 Set a song, overriding votes
 
-### /start
+### `/start`
 
 Start current selected song. To be used when voting is off
 
-### /forceend
+### `/forceend`
 
 Force ends current song for everyone playing.
 
-### /voteon
+### `/voteon`
 
 Enable voting for next song
 
-### /voteoff
+### `/voteoff`
 
 Disable voting for next song
 
-### /loadcharts
+### `/loadcharts`
 
 Find new folders, load all charts found in them
 
-### /reloadcharts
+### `/reloadcharts`
 
 Throw away current song list and rescan everything. WARNING: this is terribly slow and usually not a good idea.
 
