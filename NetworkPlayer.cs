@@ -265,13 +265,11 @@ namespace FNFBRServer
                         else
                         {
                             SendPacket(new NicknameConfirm {Reply = NicknameConfirm.ReplyType.AlreadyInUse});
-                            Disconnect();
                         }
                     }
                     else
                     {
                         SendPacket(new NicknameConfirm {Reply = NicknameConfirm.ReplyType.Invalid});
-                        Disconnect();
                     }
                     break;
                 case JoinedLobby:
