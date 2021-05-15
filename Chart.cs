@@ -80,6 +80,7 @@ namespace FNFBRServer
         public static byte[] FixChart(byte[] inFile, string folder)
         {
             var inString = System.Text.Encoding.UTF8.GetString(inFile);
+            inString.Trim('\0'); // wtf
             var chart = JsonSerializer.Deserialize<Chart>(inString);
             if (chart.song?.song == null)
                 throw new InvalidDataException("Malformed chart");
