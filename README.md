@@ -83,3 +83,7 @@ Throw away current song list and rescan everything. WARNING: this is terribly sl
 
     You should have received a copy of the GNU Affero General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+The full text of AGPLv3 can be found in the COPYING file.
+
+As a special exception, NAudio.Vorbis and its dependencies are allowed to be used distributed under their original (Microsoft Public License) license when used in combination with this software.
