@@ -356,7 +356,7 @@ namespace FNFBRServer
             ChartPacket = new SendChart { File = chartEntry.Data };
             InstPacket = inst != null ? new SendInst { File = inst } : new Deny();
             VoicesPacket = new SendVoices { File = voices };
-            File = chartEntry.SongName + chartEntry.DifficultyName == "" ? chartEntry.DifficultyName : "-" + chartEntry.DifficultyName;
+            File = chartEntry.SongName + (chartEntry.DifficultyName == "" ? chartEntry.DifficultyName : "-" + chartEntry.DifficultyName);
             Folder = chartEntry.SongName;
         }
 
